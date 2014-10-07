@@ -1,0 +1,703 @@
+SET SERVEROUTPUT ON;
+
+CREATE TABLE CITIES (
+cityName VARCHAR(30) NOT NULL,
+-- Trigger as this will only be allowed a Y or N
+stadium VARCHAR(1) NOT NULL,
+PRIMARY KEY(cityName)
+);
+
+/* Trigger to print an error message if a user tried to input anything 
+** other than a y or n for the stadium field
+*/
+CREATE OR REPLACE TRIGGER city_stadium
+-- Needed to be applied before any insert is made on the Stadium
+BEFORE INSERT OR UPDATE on CITIES
+FOR EACH ROW
+DECLARE 
+-- Setting the vairable stad to allow it to only hold a Y or N if a city has a stadium
+stad VARCHAR(1);
+-- Exception that is raised if a Y or N are not input in the stadium field
+wrong_value EXCEPTION;
+BEGIN
+	-- Pass the value thats been inputted into the stadium field on the new City row
+	stad := :NEW.stadium;
+	-- Check if its not equal to a Y then check if its not an N
+	IF stad <> 'Y' THEN
+		IF stad <> 'N' THEN
+		-- Once the value has not equaled to Y or N then the exception is raised.
+			RAISE wrong_value;
+		END IF;
+	END IF;
+EXCEPTION
+	-- Exception is raised on itself to stop the input going through
+	WHEN wrong_value THEN
+	-- Prints line to tell user there was an error
+	DBMS_OUTPUT.PUT_LINE('Value must be equal to y or n');
+	RAISE;
+END;
+/
+
+CREATE TABLE NATIONS (
+countryCode VARCHAR(3) NOT NULL,
+countryName	VARCHAR(50) NOT NULL,
+--Setting qualified to a VARCHAR that can read y/n will create trigger for this also
+qualified VARCHAR(1) NOT NULL,
+homeColour VARCHAR(10) NOT NULL,
+hostCity VARCHAR (30) NULL, 
+PRIMARY KEY (countryCode),
+FOREIGN KEY(hostCity) REFERENCES CITIES(cityName)
+);
+
+/*Trigger to print an error message if a user tried to 
+*input anything other than a y or n for the qualified field
+*/
+CREATE OR REPLACE TRIGGER qualified_country
+BEFORE INSERT OR UPDATE on NATIONS
+FOR EACH ROW
+DECLARE 
+-- Setting the vairable qual to allow it to only hold a Y or N if a Nation qualified
+qual VARCHAR(1);
+-- Exception to raise if its not a Y or N input
+wrong_value EXCEPTION;
+BEGIN
+	-- Pass the value thats been inputted into the qualified field on the new Nation row
+	qual := :NEW.qualified;
+	-- Check if its not a Y and then if its not an N
+	IF qual <> 'Y' THEN
+		IF qual <> 'N' THEN
+		-- Once the value has not equaled to y or n then the exception is raised.
+			RAISE wrong_value;
+		END IF;
+	END IF;
+EXCEPTION
+	-- Exception is raised on itself to stop the input going through
+	WHEN wrong_value THEN
+	-- Prints line to tell user there was an error
+	DBMS_OUTPUT.PUT_LINE('Value must be equal to y or n');
+	RAISE;
+END;
+/
+
+-- Test Insert throws the above exception
+INSERT INTO NATIONS VALUES('zzz','zland','q','pink','Natal');
+
+
+CREATE TABLE GROUPS (
+-- Trigger to be created for this allowing only A-H in letters
+groupLetter VARCHAR(1) NOT NULL,
+nation VARCHAR(50) NOT NULL,
+gamesPlayed NUMBER(1) NOT NULL,
+-- Max points is 9
+points NUMBER(1) NOT NULL,
+PRIMARY KEY(groupLetter, nation),
+-- Constraint as nations can only appear once in any group
+CONSTRAINT team_constraint FOREIGN KEY(nation) REFERENCES NATIONS(countryCode) 
+);
+
+CREATE OR REPLACE TRIGGER letters
+BEFORE INSERT OR UPDATE on GROUPS
+FOR EACH ROW
+DECLARE 
+-- Letter variable that will store the user inputted letter
+letter VARCHAR(1);
+-- Exception that will be raised should an invalid Group letter be entered
+wrong_letter EXCEPTION;
+BEGIN
+	--Pass the newly entereed letter value into the letter variable
+	letter := :NEW.groupLetter;
+	-- Case will check each letter against A-H as these are the only valid letters
+	CASE letter
+	 WHEN 'A' THEN DBMS_OUTPUT.PUT_LINE('Correct Group entered');
+	 WHEN 'B' THEN DBMS_OUTPUT.PUT_LINE('Correct Group entered');
+	 WHEN 'C' THEN DBMS_OUTPUT.PUT_LINE('Correct Group entered');
+	 WHEN 'D' THEN DBMS_OUTPUT.PUT_LINE('Correct Group entered');
+	 WHEN 'E' THEN DBMS_OUTPUT.PUT_LINE('Correct Group entered');
+	 WHEN 'F' THEN DBMS_OUTPUT.PUT_LINE('Correct Group entered');
+	 WHEN 'G' THEN DBMS_OUTPUT.PUT_LINE('Correct Group entered');
+	 WHEN 'H' THEN DBMS_OUTPUT.PUT_LINE('Correct Group entered');
+	 -- If none of the letters are entered correctly then it raises the Exception for wrong letter
+	 ELSE RAISE wrong_letter;
+	END CASE;
+EXCEPTION
+	-- Exception is raised on itself to stop the input going through
+	WHEN wrong_letter THEN
+	-- Prints line to tell user there was an error
+	DBMS_OUTPUT.PUT_LINE('Groups only range from A to H. Input letter not allowed');
+	RAISE;
+END;
+/
+
+--Test Trigger for group letter
+INSERT INTO GROUPS VALUES ('Q','IRE','3');
+
+-- Create the Position Table
+CREATE TABLE POSITIONS (
+positionType VARCHAR(3) NOT NULL,
+positionName VARCHAR(10) NOT NULL,
+PRIMARY KEY(positionType)
+);
+
+-- Sequence created for refID along with trigger to populate field on its own
+CREATE TABLE REFEREES(
+refID NUMBER(5) NOT NULL,
+refName VARCHAR(50) NULL,
+nation VARCHAR(30) NOT NULL,
+-- This also has a trigger as it takes data from the nations table
+nationParticipating VARCHAR(1),
+CONSTRAINT pkref PRIMARY KEY(refID),
+FOREIGN KEY (nation) REFERENCES NATIONS(countryCode)
+);
+
+-- Creating a sequence to automatically allocate ref numbers when a row is added to the DB
+CREATE SEQUENCE refID_seq
+-- Set a min value and max value for the numbers that can be used
+MINVALUE 50000
+MAXVALUE 99999 
+START WITH 50000 
+-- Increment by 50 just to allow the numbers be more distinguisable.
+INCREMENT BY 50
+NOCACHE 
+-- It can not cycle as the refs must have unique IDs.
+NOCYCLE;
+
+-- Trigger to use the refID sequence to automacitcally assign 
+-- the next available ref number
+CREATE OR REPLACE TRIGGER new_ref 
+	BEFORE INSERT ON REFEREES
+	FOR EACH ROW
+	BEGIN
+		:new.refID := refID_seq.NEXTVAL;
+	END;
+/
+
+-- Trigger will automcaitcally update the field to tell if a referees country is competing in the WC
+CREATE OR REPLACE TRIGGER ref_nation_qualified
+	BEFORE INSERT OR UPDATE ON REFEREES
+	FOR EACH ROW
+	DECLARE 
+	-- Variable to store the refs nation
+	ref_nation VARCHAR(3);
+	BEGIN
+		-- Pass the new nation of the ref into my variable
+		ref_nation := :NEW.nation;
+		-- Select the qualified field from the Nations table and populate this data into the new row
+		SELECT NATIONS.qualified INTO :NEW.nationParticipating FROM NATIONS
+		WHERE countryCode=ref_nation;		
+	END;
+/
+
+
+CREATE TABLE PLAYERS (
+--Sequence created for PlayerID
+playerID NUMBER(5) NOT NULL,
+-- Using one field as some players have single names and also namse with 4 words
+playerName VARCHAR(50) NOT NULL,
+nation VARCHAR(30) NOT NULL,
+squadNumber NUMBER(2) NOT NULL,
+position VARCHAR(3) NOT NULL,
+PRIMARY KEY(playerID),
+FOREIGN KEY(position) REFERENCES POSITIONS(positionType),
+FOREIGN KEY(nation) REFERENCES NATIONS(countryCode)
+);
+/
+
+CREATE SEQUENCE new_player_seq
+-- Set the player numbers to different values to the referees to avoid confusion
+MINVALUE 10000
+MAXVALUE 49999
+START WITH 10000
+INCREMENT BY 5
+NOCACHE
+-- No cycle as players cannot have the same number
+NOCYCLE;
+
+-- trigger to allocate the number from the sequence
+CREATE OR REPLACE TRIGGER new_player
+	BEFORE INSERT ON PLAYERS
+	FOR EACH ROW
+	BEGIN
+		-- Pass the next value from the sequence into the new player ID
+		:new.playerID := new_player_seq.NEXTVAL;
+	END;
+/
+		
+
+CREATE TABLE STADIUMS (
+--Will use a sequnces to ensure unique stadium number
+stadiumID NUMBER(2) NOT NULL,
+stadiumName VARCHAR(50) NOT NULL,
+city VARCHAR(50) NOT NULL, 
+capacity NUMBER(8) NOT NULL,
+PRIMARY KEY(stadiumID),
+-- Only one stadium per city
+CONSTRAINT fkLocation FOREIGN KEY (city) REFERENCES CITIES(cityName)
+);
+
+
+-- Sequence to update stadium numbers
+CREATE SEQUENCE stadID_seq
+MINVALUE 1
+MAXVALUE 99
+START WITH 1
+INCREMENT BY 1
+NOCACHE
+NOCYCLE;
+
+CREATE OR REPLACE TRIGGER add_stadium 
+	BEFORE INSERT ON STADIUMS
+	FOR EACH ROW
+	BEGIN
+		-- Pass the next value on the Stadium ID seq to the new row
+		:new.stadiumID := stadID_seq.NEXTVAL;
+	END;
+/
+
+CREATE TABLE MANAGERS(
+managerName VARCHAR(30) NULL,
+nation VARCHAR(30) NOT NULL,
+PRIMARY KEY(managerName),
+CONSTRAINT fkManCountry FOREIGN KEY(nation) REFERENCES NATIONS(countryCode)
+);
+
+
+CREATE TABLE FIXTURES(
+--sequence to be created to update the fixture numbers
+fixNum NUMBER(2) NOT NULL,
+referee NUMBER(5) NOT NULL,
+teamA VARCHAR(30) NOT NULL,
+teamB VARCHAR(30) NOT NULL,
+groups VARCHAR(1) NOT NULL,
+venue NUMBER(10) NOT NULL,
+matchDate DATE NOT NULL,
+PRIMARY KEY(fixnum),
+FOREIGN KEY(referee) REFERENCES REFEREES(refID),
+FOREIGN KEY(teamA) REFERENCES NATIONS(countryCode),
+FOREIGN KEY(teamB) REFERENCES NATIONS(countryCode),
+FOREIGN KEY(venue) REFERENCES STADIUMS(stadiumID)
+);
+
+
+CREATE SEQUENCE fixNum_seq
+MINVALUE 1
+MAXVALUE 500
+START WITH 1
+INCREMENT BY 1
+NOCACHE
+NOCYCLE;
+/
+
+/*Exceptions to avoid the same team being in the same fixture
+Team has to be in the right group
+*/
+CREATE OR REPLACE TRIGGER fixture_guidelines
+BEFORE INSERT ON FIXTURES
+FOR EACH ROW
+DECLARE
+-- Exception to be thrown if the same teams is entered to play themselves
+sameTeam EXCEPTION;
+-- Exception to be raised if team is not in the group mentioned
+teamNotInGroup EXCEPTION;
+--Variables to hold teamA and teamB being inserted 
+teamOne VARCHAR(3);
+teamTwo VARCHAR(3);
+-- Variable to store team 1's actual group
+teamOneGroup VARCHAR(1);
+-- Variable to store team 2's actual group
+teamTwoGroup VARCHAR(1);
+letter VARCHAR(1);
+BEGIN
+	-- Firstlty allocate the next value from the FixNumsequence
+	:NEW.fixNum := fixNum_seq.NEXTVAL;
+	-- Pass the new teamA into the first team variable
+	teamOne := :NEW.teamA;
+	-- Pass new teamB into the second team variable
+	teamTwo := :NEW.teamB;
+	-- Pass the group being used into the letter variable
+	letter := :NEW.groups;
+	
+	-- Check if teamA and teamB that were entered are the same
+	-- if they are raise the same team exception
+	IF teamOne=teamTwo THEN
+		RAISE sameTeam;
+	END IF;	
+	
+	-- Check if TeamA are actually in the group entered
+	-- Pass the letter from TeamAs matching data from the groups table
+	SELECT GROUPS.groupLetter INTO teamOneGroup FROM GROUPS
+	WHERE GROUPS.nation = :NEW.teamA;
+	
+	-- IF the group letters don't match the one being used in the new row raise the Exception
+	IF :NEW.groups<>teamOneGroup THEN
+		RAISE teamNotInGroup;
+	END IF;
+	
+	-- Check if TeamB are actually in the group entered
+	-- Pass the letter from teamBs matching data from the groups table
+	SELECT GROUPS.groupLetter INTO teamTwoGroup FROM GROUPS
+	WHERE GROUPS.nation = :NEW.teamB;
+	
+	-- IF the group letters don't match the one being used in the new row raise the Exception
+	IF :NEW.groups<>teamTwoGroup THEN
+		RAISE teamNotInGroup;
+	END IF;
+	
+EXCEPTION 
+	-- Exception for the same team entered twice, prints message to screen
+	WHEN sameTeam THEN
+		DBMS_OUTPUT.PUT_LINE('The same team has been entered to play themselves');
+		RAISE;
+	-- Exception to show message if the wrong team was used, (not in the right group)
+	WHEN teamNotInGroup THEN
+		DBMS_OUTPUT.PUT_LINE('That team is not in that group');
+		RAISE;
+END;
+/
+
+-- Test the two exceptions above
+INSERT INTO FIXTURES (referee, teamA, teamB, groups, venue, matchDate) VALUES (51600, 'BRA', 'BRA', 'A', 1, '12-JUN-14');
+INSERT INTO FIXTURES (referee, teamA, teamB, groups, venue, matchDate) VALUES (51600, 'BRA', 'ENG', 'A', 1, '12-JUN-14');
+
+
+
+CREATE TABLE RESULTS(
+resNum NUMBER(2) NOT NULL,
+teamA VARCHAR(30) NOT NULL,
+goalsA NUMBER(2) NOT NULL,
+teamB VARCHAR(30) NOT NULL,
+goalsB NUMBER(2) NOT NULL,
+--CONSTRAINT con_results  FOREIGN KEY(resNum) REFERENCES FIXTURES(fixNum) ON DELETE CASCADE,
+FOREIGN KEY(teamA) REFERENCES NATIONS(countryCode),
+FOREIGN KEY(teamB) REFERENCES NATIONS(countryCode)
+);
+
+--Trigger to automatically update the information for teamA and teamB from the Fixture table
+CREATE OR REPLACE TRIGGER import_teams
+BEFORE INSERT OR UPDATE ON RESULTS
+FOR EACH ROW
+DECLARE
+-- The fixture variable will be used to match the resultNum with the correct FixNum
+fixture NUMBER(2);
+BEGIN
+	-- ResNum gets passed to fixture
+	fixture := :NEW.resNum;
+	-- TeamA and TeamB get selected from the corresponding entries on the Fixture Table
+	SELECT teamA INTO :NEW.teamA FROM FIXTURES WHERE FIXTURES.fixNum=fixture;
+	SELECT teamB INTO :NEW.teamB FROM FIXTURES WHERE FIXTURES.fixNum=fixture;
+END;
+/
+
+-- This is an After Trigger for updated the Groups table after a result is added.
+CREATE OR REPLACE TRIGGER results_update
+AFTER INSERT OR UPDATE ON RESULTS
+FOR EACH ROW
+DECLARE
+	-- Variables to store teamA (homeTeam),teamB(awayTeam), how many goals were scored by each
+	home_team VARCHAR(50);
+	away_team VARCHAR(50);
+	home_goals NUMBER(2);
+	away_goals NUMBER(2);
+BEGIN
+	-- pass the values from the new Row created in the Results table into the variables
+	home_team := :NEW.teamA;
+	away_team := :NEW.teamB;
+	home_goals := :NEW.goalsA;
+	away_goals := :NEW.goalsB;
+	
+	-- This If statement adds the winning 3 points to TeamA if they scored more
+	IF home_goals > away_goals THEN
+		-- Print a message to say the team that one.
+		DBMS_OUTPUT.PUT_LINE(home_team || 'Won');
+		-- Here's where the Group column gets updated with 3 points for the winner
+		UPDATE GROUPS SET points=points+3 WHERE GROUPS.NATION=home_team;
+		-- Both teams have now played a match so they need 1 added to there gamesPlayed column
+		UPDATE GROUPS SET gamesPlayed=gamesPlayed+1 WHERE GROUPS.NATION=home_team;
+		UPDATE GROUPS SET gamesPlayed=gamesPlayed+1 WHERE GROUPS.NATION=away_team;
+	-- This is the second condition, it does the exact same except for teamB(awayTeam)
+	ELSIF home_goals < away_goals THEN
+		DBMS_OUTPUT.PUT_LINE(away_team || 'Won');
+		-- 3 points go to teamB
+		UPDATE GROUPS SET points=points+3 WHERE GROUPS.NATION=away_team;
+		-- Both teams get updated by one game
+		UPDATE GROUPS SET gamesPlayed=gamesPlayed+1 WHERE GROUPS.NATION=home_team;
+		UPDATE GROUPS SET gamesPlayed=gamesPlayed+1 WHERE GROUPS.NATION=away_team;
+	-- The final possibility is the match being a draw. 
+	ELSIF home_goals = away_goals THEN
+		DBMS_OUTPUT.PUT_LINE('Match was a Draw');
+		-- Both teams get 1 point for the draw
+		UPDATE GROUPS SET points=points+1 WHERE GROUPS.NATION=home_team;
+		UPDATE GROUPS SET points=points+1 WHERE GROUPS.NATION=away_team;
+		-- Both teams again get updated by 1 game
+		UPDATE GROUPS SET gamesPlayed=gamesPlayed+1 WHERE GROUPS.NATION=home_team;
+		UPDATE GROUPS SET gamesPlayed=gamesPlayed+1 WHERE GROUPS.NATION=away_team;
+	END IF;	
+	-- The final part deletes the row from the fixture table to avoid the game being entered again
+	DELETE FIXTURES WHERE fixNum=:NEW.resNum;
+END;
+/
+
+
+---****** JOINS *******
+
+-- List of just the competing nations in the world cup
+SELECT countryName FROM NATIONS JOIN GROUPS
+ON nation=countryCode;
+
+-- List the referees and their nationality in full.
+SELECT R.refName, N.countryName FROM REFEREES R JOIN NATIONS N
+ON R.nation=N.countryCode;
+
+-- List each player alongside his manager
+SELECT p.playerName, m.managerName FROM PLAYERS P JOIN MANAGERS M
+ON P.nation = M.nation;
+
+-- List the teams with the top points in the tournament
+SELECT N.countryName, G.points FROM NATIONS N JOIN GROUPS G
+ON N.countryCode=G.nation;
+
+--Left Outer Joins
+-- List all the cities being used as a host city, if it has a stadium show its name.
+SELECT C.cityName, S.stadiumName FROM CITIES C LEFT OUTER JOIN STADIUMS S
+ON C.cityName=S.city;
+
+-- Show each Fixture including the full referee name and the referees nation?
+SELECT F.*, R.refName, R.nation AS refNation FROM FIXTURES F LEFT OUTER JOIN REFEREES R
+ON F.referee=R.refID;
+
+--Right Outer Joins
+--View all the stadiums a team are playing at so they can arrange their scehdule
+SELECT N.countryName, F.venue FROM NATIONS N RIGHT OUTER JOIN FIXTURES F
+ON F.teamA=N.countryCode OR F.teamB=N.countryCode
+ORDER BY N.countryName;
+
+-- Show each of the groups and the teams in them.
+SELECT G.groupLetter, N.countryName FROM NATIONS N RIGHT OUTER JOIN GROUPS G
+ON G.nation=N.countryCode;
+
+--Show all FIFA nations and their managers if they have one
+SELECT M.managerName, N.countryName FROM NATIONS N FULL OUTER JOIN MANAGERS M
+ON M.nation=N.countryCode;
+
+-- Show all FIFA nations and a referee if they have one at the World Cup (this shows the opposite to above)
+SELECT R.refName, N.countryName FROM REFEREES R FULL OUTER JOIN NATIONS N
+ON R.nation=N.countryCode;
+
+-- Cube Query - Will display a count of 1 for each fixture a team is in then a total beside their name
+-- Count the fixtures a team is involved in.
+SELECT N.countryName, COUNT(F.fixNum) AS fixtures FROM NATIONS N, FIXTURES F 
+WHERE F.teamA=N.countryCode OR F.teamB=N.countryCode
+-- Group by count of FixNum first so the total fixtures for each team is at the top
+GROUP BY CUBE(F.fixNum, N.countryName);
+
+-- Cube Query 
+-- Show the number of times each venue is used in the Group Stages in order
+SELECT DISTINCT venue, COUNT(fixNum) AS fixtures FROM FIXTURES 
+HAVING COUNT(fixNum)>1
+-- Group by count of FixNum first so the total fixtures for each team is at the top
+GROUP BY CUBE(fixNum, venue)
+ORDER BY fixtures;
+
+--**** SUB QUERIES ****
+
+-- List the Stadiums that have a capacity higher than the average.
+SELECT stadiumName, capacity FROM STADIUMS
+WHERE capacity>(SELECT AVG(capacity) FROM STADIUMS);
+
+-- Show the full country Name and the group they are participating in
+SELECT (SELECT countryName FROM NATIONS 
+WHERE GROUPS.nation=NATIONS.countryCode) AS country, GROUPS.groupLetter FROM GROUPS;
+
+-- Give a list of all the teams at the tournament that are wearing red or blue jerserys.
+--SQ alias for the FROM subquery
+SELECT SQ.countryName, SQ.homeColour 
+FROM (SELECT N.countryName, N.homeColour FROM NATIONS N WHERE N.qualified='Y') SQ
+WHERE SQ.homeColour='BLUE' OR SQ.homeColour='RED';
+
+-- Show the full team names, the points total and the group in order.
+-- Using a Join query also to allow the actual team name be used rather than the letter
+SELECT SQ.countryName, G.points, G.groupLetter FROM (SELECT N.countryName, N.countryCode 
+FROM NATIONS N JOIN GROUPS G
+-- I've used SQ as the alias on the new Select query created, G is the alias on group
+ON G.nation=N.countryCode) SQ JOIN GROUPS G
+ON G.nation=SQ.countryCode
+ORDER BY groupLetter ASC, Points DESC;
+
+-- Select any team that played as the "home" side i.e. teamA that scored more than 3 goals
+SELECT SQ.countryName, SQ.goals FROM (SELECT N.countryCode, N.countryName, R.goalsA AS goals
+FROM NATIONS N JOIN RESULTS R
+-- Using SQ as an alias for the subquery
+ON R.teamA=N.countryCode) SQ JOIN RESULTS R
+ON R.teamA=SQ.countryCode
+WHERE SQ.goals>3;
+
+--- ****PACKAGE ****
+
+-- Package
+CREATE OR REPLACE PACKAGE world_cup_package AS
+	-- Count the total amount of referees competeting and display it to user
+	PROCEDURE refs_qualified;
+	-- Update a stadium for a fixture if needed
+	PROCEDURE change_venue(fixtureNum IN NUMBER, venueID IN NUMBER);
+	-- Update a player if there is an injury and a player has to go home.
+	PROCEDURE change_player(country IN VARCHAR, squadNo IN NUMBER, newName IN VARCHAR);
+	-- Create a procedure to check the ticket allocation
+	PROCEDURE ticket_allocation (stadID IN NUMBER);
+	-- Procedure to allocate extra seats for bigger matches
+	PROCEDURE change_capacity (stadID NUMBER);
+END;
+/
+
+CREATE OR REPLACE PACKAGE BODY world_cup_package AS
+		-- variables for first procedure
+		ref_counter NUMBER;
+		total_refs NUMBER;
+		total_qualified_refs NUMBER := 0;
+		qualified VARCHAR(1);
+		
+		-- variables used in the fourth procedure
+
+		
+	PROCEDURE refs_qualified IS
+	BEGIN 	
+	-- Pass the lowest referee ID Into the ref_counter
+		SELECT MIN(REFEREES.refID) INTO ref_counter FROM REFEREES;
+	-- Pass the maximum ref Number into the total_refs
+		SELECT MAX(REFEREES.refID) INTO total_refs FROM REFEREES;
+	
+		-- While the ref_counter is lover than the total refs it will loop
+		WHILE ref_counter < total_refs LOOP
+			-- Run a select query that will pass the Y or N from nationParticipating
+			-- into the qualifed variable.
+			SELECT REFEREES.nationParticipating INTO qualified FROM REFEREES 
+			WHERE REFEREES.refID = ref_counter;
+			-- If the refs nation qualified add one to the total  qualified refs
+			IF qualified='Y' THEN
+				total_qualified_refs := total_qualified_refs + 1;
+			END IF;
+			-- ref IDs go up by 50 so i is incremented by 50
+			ref_counter := ref_counter+50;
+		END LOOP;
+		-- Print a message to the screen to advise how many refs nations' have also qualified
+		DBMS_OUTPUT.PUT_LINE('There are ' || total_qualified_refs || ' 
+		referees from participating nations.');
+	END refs_qualified;
+	
+	-- Pass in the existing fixture number and the new Venue ID to be used
+	PROCEDURE change_venue(fixtureNum IN NUMBER, venueID IN NUMBER)
+	IS
+	BEGIN
+		-- Simple update statement to set the venue to the new one
+		UPDATE FIXTURES
+		SET venue=venueID
+		WHERE fixNum=fixtureNum;
+		DBMS_OUTPUT.PUT_LINE('Stadium updated');
+	END change_venue;
+
+	-- Pass in the exising country and squad number and the NEW players name
+	PROCEDURE change_player(country IN VARCHAR, squadNo IN NUMBER, newName IN VARCHAR) 
+	IS
+	BEGIN
+		-- Update the player where the ID matches with the new 
+		UPDATE PLAYERS
+		SET playerName=newName
+		WHERE squadNumber=squadNo AND nation=country;
+		DBMS_OUTPUT.PUT_LINE('Player name changed');
+	END change_player;
+	
+	-- Pass in the stadium number to work out teams allocation, 
+	-- each gets 1/3 of the tickets
+	PROCEDURE ticket_allocation (stadID IN NUMBER)
+	IS
+	-- Create a cursor that saves the row for the Stadium thats 
+	-- passed into the procedure
+	CURSOR cur_capacity IS SELECT capacity FROM Stadiums WHERE stadiumID=stadID;
+	-- allocation used to store the amount of tickets
+	allocation NUMBER;
+	BEGIN
+		--Open the cursor
+		OPEN cur_capacity;
+		-- Pass the details from the cursor into the allocation
+		FETCH cur_capacity INTO allocation;
+		-- Close the cursor
+		CLOSE cur_capacity;
+		-- Divided the allocation by 3
+		allocation:=allocation/3;
+		-- Print line to let user know how many tickets each team gets
+		DBMS_OUTPUT.PUT_LINE('Each team has an allocation of ' || allocation);
+	END ticket_allocation;
+	
+	-- Increases the stadium capacity by 1000, smaller stadiums can't 
+	--have the increase
+	PROCEDURE change_capacity (stadID NUMBER)
+	IS
+		--Variables for the amount to increase, to hold old and new 
+		--capacities also
+		increase_amount NUMBER:=1000;
+        new_capacity NUMBER;
+        old_capacity NUMBER;
+	BEGIN
+		-- Pass the capacity of the required stadium into the old_capacity
+		SELECT capacity INTO old_capacity FROM STADIUMS WHERE stadiumID=stadID;
+		-- Add 1000 to it and assign it to new_capacity
+		new_capacity:=old_capacity+1000;
+		--Create a savepoint to rollback if problem occurs
+		SAVEPOINT new_stad_update;
+		
+		-- Update the stadium capacity to the new increased amount
+		UPDATE STADIUMS
+		SET capacity=new_capacity
+		WHERE stadiumID=stadID;
+
+		-- If the stadiums capacity is less than 45000 then it 
+		--can't hold the increase so rollback needed
+		IF new_capacity<45000 THEN
+			ROLLBACK TO new_stad_update;
+		END IF;
+	END change_capacity;
+	
+END world_cup_package;
+
+--**** Functions **** -- 
+
+-- Count the number of players in a given position regsitered
+CREATE OR REPLACE FUNCTION total_playes_in_position
+-- Two variables passed in
+(team VARCHAR, pos VARCHAR)
+-- Return a Number that coounts the players 
+RETURN NUMBER IS totalInPosition NUMBER;
+BEGIN
+	-- Call the count function to count the rows that match the position
+	SELECT COUNT(position) INTO totalInPosition FROM PLAYERS
+	WHERE nation=team AND position=pos;
+-- Return the counted total
+return totalInPosition ;
+END total_playes_in_position;
+/
+
+SELECT total_playes_in_position('BRA', 'GK') FROM DUAL;
+
+
+-- Create a new function to add total team goals from results
+CREATE OR REPLACE FUNCTION total_team_goals
+-- reads in the team three letter code e.g. 'ENG'
+(team VARCHAR)
+-- return type is a number in the variable goals
+RETURN NUMBER IS goals NUMBER;
+BEGIN
+	-- Select the count of goalsA and goalsB where teamA / B are the team entered
+	SELECT SUM(goalsA) + SUM(goalsB) INTO goals FROM RESULTS 
+	WHERE teamA=team OR teamB=team;
+	-- the result will be the total goals they scored in all the results they're in
+return goals;
+END total_team_goals;
+/
+
+SELECT total_team_goals('BRA') FROM DUAL;
+
+
+
+
+
+
+
+
